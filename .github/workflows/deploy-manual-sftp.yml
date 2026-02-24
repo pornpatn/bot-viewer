@@ -1,0 +1,37 @@
+name: Manual Deploy (SFTP Password)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch/tag/commit to deploy"
+        required: false
+        default: "main"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Upload via SFTP (port 2222)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          port: ${{ secrets.SFTP_PORT }}
+          source: "./"
+          target: ${{ secrets.SFTP_TARGET_DIR }}
+          overwrite: true
+          rm: false
+          exclude: |
+            .git/
+            .github/
+            node_modules/
+            .env
+            .env.*
+            **/*.log
