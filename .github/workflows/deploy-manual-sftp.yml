@@ -17,21 +17,22 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      - name: Upload via SFTP (port 2222)
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SFTP_USER }}
-          password: ${{ secrets.SFTP_PASSWORD }}
-          port: ${{ secrets.SFTP_PORT }}
-          source: "./"
-          target: ${{ secrets.SFTP_TARGET_DIR }}
-          overwrite: true
-          rm: false
-          exclude: |
-            .git/
-            .github/
-            node_modules/
-            .env
-            .env.*
-            **/*.log
+      - name: Deploy via rsync over SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SFTP_PASSWORD }}" > /dev/null
+
+          ssh-keyscan -p ${{ secrets.SFTP_PORT }} ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts
+
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+          sshpass -p "${{ secrets.SFTP_PASSWORD }}" \
+          rsync -az --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='node_modules/' \
+            --exclude='.env' \
+            -e "ssh -p ${{ secrets.SFTP_PORT }}" \
+            ./ \
+            ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_TARGET_DIR }}
