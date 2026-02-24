@@ -1,0 +1,23 @@
+# OS
+.DS_Store
+
+# Environment
+.env
+.env.local
+/config/database.local.php
+
+# Logs
+*.log
+
+# SQL dumps
+*.sql
+
+# Uploads (if later)
+uploads/
+
+# Test folder
+test/
+
+# IDE
+.vscode/
+.idea/
