@@ -17,26 +17,27 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      - name: Deploy via rsync over SSH (allow ssh-rsa host key)
+      - name: Deploy via SFTP (lftp mirror)
         run: |
           sudo apt-get update
-          sudo apt-get install -y sshpass
+          sudo apt-get install -y lftp
 
-          mkdir -p ~/.ssh
+          lftp -u "${{ secrets.SFTP_USER }},${{ secrets.SFTP_PASSWORD }}" \
+            -p ${{ secrets.SFTP_PORT }} \
+            sftp://${{ secrets.SFTP_HOST }} <<EOF
+          set sftp:auto-confirm yes
+          set net:timeout 20
+          set net:max-retries 2
+          set ssl:verify-certificate no
 
-          # NOTE: This allows old ssh-rsa host keys from the server.
-          SSH_CMD="ssh -p ${{ secrets.SFTP_PORT }} \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o HostKeyAlgorithms=+ssh-rsa \
-            -o PubkeyAcceptedAlgorithms=+ssh-rsa"
+          # Upload repo -> server folder
+          mirror -R --verbose \
+            --exclude-glob .git/ \
+            --exclude-glob .github/ \
+            --exclude-glob node_modules/ \
+            --exclude-glob .env \
+            --exclude-glob .env.* \
+            ./ ${{ secrets.SFTP_TARGET_DIR }}
 
-          sshpass -p "${{ secrets.SFTP_PASSWORD }}" \
-            rsync -az --delete \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='node_modules/' \
-            --exclude='.env' \
-            -e "$SSH_CMD" \
-            ./ \
-            ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_TARGET_DIR }}
+          bye
+          EOF
