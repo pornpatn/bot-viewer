@@ -35,22 +35,26 @@ jobs:
             -o PubkeyAuthentication=no \
             ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} "pwd && whoami && ls -la"
 
-      - name: Deploy via rsync over SSH
+      - name: Deploy via rsync over SSH (allow ssh-rsa host key)
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SFTP_PASSWORD }}" > /dev/null
-
-          ssh-keyscan -p ${{ secrets.SFTP_PORT }} ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts
-
           sudo apt-get update
           sudo apt-get install -y sshpass
 
+          mkdir -p ~/.ssh
+
+          # NOTE: This allows old ssh-rsa host keys from the server.
+          SSH_CMD="ssh -p ${{ secrets.SFTP_PORT }} \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o HostKeyAlgorithms=+ssh-rsa \
+            -o PubkeyAcceptedAlgorithms=+ssh-rsa"
+
           sshpass -p "${{ secrets.SFTP_PASSWORD }}" \
-          rsync -az --delete \
+            rsync -az --delete \
             --exclude='.git/' \
             --exclude='.github/' \
             --exclude='node_modules/' \
             --exclude='.env' \
-            -e "ssh -p ${{ secrets.SFTP_PORT }}" \
+            -e "$SSH_CMD" \
             ./ \
             ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_TARGET_DIR }}
