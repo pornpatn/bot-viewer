@@ -1,139 +1,240 @@
 <?php
-require_once __DIR__ . "/config/app.php";
-require_once __DIR__ . "/config/database.php";
-require_once __DIR__ . "/includes/functions.php";
+require_once __DIR__ . '/includes/bootstrap.php';
 
-$sql = "
-SELECT
-  b.nid AS bird_nid,
-  b.title AS bird_title,
+$orders = bot_fetch_orders($pdo);
 
-  ord_term.name AS sci_order,
-  fam_term.name AS sci_family,
-
-  tax.field_taxon_order_value AS taxon_order,
-
-  COALESCE(pc.field_photo_count_count, 0) AS photo_count
-
-FROM dpl_node b
-
-LEFT JOIN dpl_field_data_field_sci_order ord
-  ON ord.entity_id = b.nid
-  AND ord.entity_type='node'
-  AND ord.bundle='bird'
-  AND ord.deleted=0
-
-LEFT JOIN dpl_taxonomy_term_data ord_term
-  ON ord_term.tid = ord.field_sci_order_tid
-
-LEFT JOIN dpl_field_data_field_sci_family fam
-  ON fam.entity_id = b.nid
-  AND fam.entity_type='node'
-  AND fam.bundle='bird'
-  AND fam.deleted=0
-
-LEFT JOIN dpl_taxonomy_term_data fam_term
-  ON fam_term.tid = fam.field_sci_family_tid
-
-LEFT JOIN dpl_field_data_field_taxon_order tax
-  ON tax.entity_id = b.nid
-  AND tax.entity_type='node'
-  AND tax.bundle='bird'
-  AND tax.deleted=0
-
-LEFT JOIN dpl_field_data_field_photo_count pc
-  ON pc.entity_id = b.nid
-  AND pc.entity_type='node'
-  AND pc.bundle='bird'
-  AND pc.deleted=0
-
-WHERE b.type='bird'
-  AND b.status=1
-
-ORDER BY
-  CAST(tax.field_taxon_order_value AS UNSIGNED),
-  ord_term.name,
-  fam_term.name,
-  b.title;
-";
-
-$stmt = $pdo->query($sql);
-$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-/**
- * Group as:
- * $data[order][family] = list of birds
- */
-$data = [];
-foreach ($rows as $r) {
-    $order  = $r['sci_order']  ?: 'Unknown Order';
-    $family = $r['sci_family'] ?: 'Unknown Family';
-    $data[$order][$family][] = $r;
+$previewByOrder = [];
+foreach ($orders as $o) {
+    $tid = (int)$o['order_tid'];
+    $previewByOrder[$tid] = bot_fetch_order_preview($pdo, $tid, 4);
 }
 
 include "includes/header.php";
 ?>
+<div class="page">
 
-<div class="container">
-
-    <?php foreach ($data as $orderName => $families): ?>
-        <?php
-        $familyCount = count($families);
-        $speciesCount = 0;
-        foreach ($families as $birds) $speciesCount += count($birds);
-        ?>
-
-        <section class="order-section">
-            <div class="order-header">
-                <h2 class="order-title"><?= htmlspecialchars($orderName) ?></h2>
-                <div class="order-stats">
-                    <?= $familyCount ?> <?= $familyCount === 1 ? 'family' : 'families' ?>
-                    &nbsp;•&nbsp;
-                    <?= $speciesCount ?> <?= $speciesCount === 1 ? 'species' : 'species' ?>
-                </div>
-            </div>
-
-            <?php foreach ($families as $familyName => $birds): ?>
-                <div class="family-card">
-
-                    <button class="family-header" type="button">
-                        <div class="family-name">
-                            <?= htmlspecialchars($familyName) ?>
-                        </div>
-
-                        <div class="family-right">
-                            <span class="family-stats">
-                                <?= count($birds) ?> <?= count($birds) === 1 ? 'species' : 'species' ?>
-                            </span>
-                            <span class="family-toggle">▾</span>
-                        </div>
-                    </button>
-
-                    <div class="species-list">
-                        <?php foreach ($birds as $b): ?>
-                            <?php $photoCount = (int)$b['photo_count']; ?>
-                            <a class="species-row" href="species.php?id=<?= (int)$b['bird_nid'] ?>">
-                                <div class="species-text">
-                                    <div class="species-primary">
-                                        <?= htmlspecialchars($b['bird_title']) ?>
-                                    </div>
-                                </div>
-
-                                <div class="species-right">
-                                    <span class="badge badge-photos">
-                                        <?= $photoCount ?> photo<?= $photoCount === 1 ? '' : 's' ?>
-                                    </span>
-                                    <span class="chevron">›</span>
-                                </div>
-                            </a>
-                        <?php endforeach; ?>
+    <div class="grid">
+        <?php foreach ($orders as $o): ?>
+            <?php
+            $orderTid = (int)$o['order_tid'];
+            $preview  = $previewByOrder[$orderTid] ?? [];
+            $speciesCount = (int)$o['species_count'];
+            $familyCount  = (int)$o['family_count'];
+            $more = max(0, $speciesCount - count($preview));
+            ?>
+            <section class="card">
+                <div class="cardHeader">
+                    <div class="orderName"><?= h($o['order_name']) ?></div>
+                    <div class="counts">
+                        <span><?= $familyCount ?> families</span>
+                        <span>•</span>
+                        <span><?= $speciesCount ?> species</span>
                     </div>
-
                 </div>
-            <?php endforeach; ?>
-        </section>
-    <?php endforeach; ?>
 
+                <div class="cardBody">
+                    <?php if (count($preview) === 0): ?>
+                        <div class="loading">No species found.</div>
+                    <?php else: ?>
+                        <?php foreach ($preview as $b): ?>
+                            <?php
+                            $nid = (int)$b['nid'];
+                            $thai = trim($b['thai_name'] ?? '');
+                            $eng  = trim($b['english_name'] ?? '');
+                            $sci  = trim($b['scientific_name'] ?? '');
+                            $photos = (int)$b['photo_count'];
+                            ?>
+                            <div class="speciesRow">
+                                <div class="speciesText">
+                                    <a class="speciesLink" href="species.php?id=<?= $nid ?>">
+                                        <?php if ($thai !== '' || $eng !== ''): ?>
+                                            <div class="commonLine">
+                                                <?php if ($thai !== ''): ?>
+                                                    <span class="thai"><?= h($thai) ?></span>
+                                                <?php endif; ?>
+
+                                                <?php if ($thai !== '' && $eng !== ''): ?>
+                                                    <span class="separator"> · </span>
+                                                <?php endif; ?>
+
+                                                <?php if ($eng !== ''): ?>
+                                                    <span class="eng"><?= h($eng) ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endif; ?>
+
+                                        <div class="sci"><?= h($sci) ?></div>
+                                    </a>
+                                </div>
+
+                                <?php if ($photos > 0): ?>
+                                    <div class="bubble"><?= $photos ?></div>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+
+                <div class="cardFooter">
+                    <div class="moreCount"><?= $more > 0 ? "+ {$more} more" : " " ?></div>
+                    <button class="moreBtn"
+                        type="button"
+                        data-order-tid="<?= $orderTid ?>"
+                        data-order-name="<?= h($o['order_name']) ?>">More →</button>
+                </div>
+            </section>
+        <?php endforeach; ?>
+    </div>
 </div>
+
+<!-- Overlay -->
+<div class="overlay" id="overlay" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="sheet" role="document">
+        <div class="sheetHeader">
+            <div>
+                <p class="sheetTitle" id="sheetTitle">Order</p>
+                <p class="sheetSub" id="sheetSub">Loading…</p>
+            </div>
+            <button class="closeBtn" type="button" id="closeBtn">Close</button>
+        </div>
+        <div class="sheetBody">
+            <div class="loading" id="loading">Loading…</div>
+            <div id="families"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const overlay = document.getElementById('overlay');
+    const closeBtn = document.getElementById('closeBtn');
+    const sheetTitle = document.getElementById('sheetTitle');
+    const sheetSub = document.getElementById('sheetSub');
+    const loading = document.getElementById('loading');
+    const familiesEl = document.getElementById('families');
+
+    function escapeHtml(str) {
+        return String(str)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", "&#039;");
+    }
+
+    function openOverlay({
+        orderTid,
+        orderName
+    }) {
+        sheetTitle.textContent = orderName;
+        sheetSub.textContent = 'Loading…';
+        loading.hidden = false;
+        familiesEl.innerHTML = '';
+
+        overlay.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+        history.pushState({
+            overlay: true
+        }, '', `#order-${orderTid}`);
+
+        fetch(`order_full_list.php?order_tid=${encodeURIComponent(orderTid)}`)
+            .then(r => r.json())
+            .then(data => {
+                sheetSub.textContent = `${data.family_count} families • ${data.species_count} species`;
+                renderFamilies(data.families || []);
+                loading.hidden = true;
+            })
+            .catch(() => {
+                sheetSub.textContent = 'Failed to load.';
+                loading.textContent = 'Sorry—could not load this list.';
+                loading.hidden = false;
+            });
+    }
+
+    function renderFamilies(families) {
+        const parts = [];
+
+        families.forEach(f => {
+            const famName = escapeHtml(f.family_name || 'Unknown family');
+            const species = f.species || [];
+
+            const items = species.map(s => {
+
+                const thaiLine = s.thai_name && s.thai_name.trim() !== '' ?
+                    `<div class="thai">${escapeHtml(s.thai_name)}</div>` :
+                    '';
+
+                const engLine = s.english_name && s.english_name.trim() !== '' ?
+                    `<div class="eng">${escapeHtml(s.english_name)}</div>` :
+                    '';
+
+                const sciLine = `
+        <div class="sci">
+          ${escapeHtml(s.scientific_name)}
+        </div>
+      `;
+
+                const photoBubble = s.photo_count > 0 ?
+                    `<div class="bubble">${Number(s.photo_count)}</div>` :
+                    '';
+
+                return `
+        <li class="fullItem">
+          <a class="speciesLink" href="species.php?id=${s.nid}">
+            <div class="fullText">
+              ${thaiLine}
+              ${engLine}
+              ${sciLine}
+            </div>
+          </a>
+          ${photoBubble}
+        </li>
+      `;
+            }).join('');
+
+            parts.push(`
+      <div class="famBlock">
+        <div class="famHeader">
+          <div class="famName">${famName}</div>
+          <div class="famCount">${species.length} species</div>
+        </div>
+        <ul class="famList">
+          ${items}
+        </ul>
+      </div>
+    `);
+        });
+
+        familiesEl.innerHTML = parts.join('');
+    }
+
+    function closeOverlay() {
+        overlay.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+        if (location.hash) history.back();
+    }
+
+    closeBtn.addEventListener('click', closeOverlay);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeOverlay();
+    });
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && overlay.getAttribute('aria-hidden') === 'false') closeOverlay();
+    });
+    window.addEventListener('popstate', () => {
+        if (overlay.getAttribute('aria-hidden') === 'false') {
+            overlay.setAttribute('aria-hidden', 'true');
+            document.body.style.overflow = '';
+        }
+    });
+
+    document.querySelectorAll('.moreBtn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            openOverlay({
+                orderTid: btn.dataset.orderTid,
+                orderName: btn.dataset.orderName
+            });
+        });
+    });
+</script>
 
 <?php include "includes/footer.php"; ?>
