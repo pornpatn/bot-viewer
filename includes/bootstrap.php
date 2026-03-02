@@ -14,4 +14,7 @@ require_once __DIR__ . '/queries_full.php';
 // bird species
 require_once __DIR__ . '/queries_species.php';
 
+// photo
+require_once __DIR__ . '/queries_photo.php';
+
 bot_pdo_init($pdo);

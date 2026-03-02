@@ -1,207 +1,201 @@
 <?php
-require_once __DIR__ . "/config/app.php";
-require_once __DIR__ . "/config/database.php";
-require_once __DIR__ . "/includes/functions.php";
+require_once __DIR__ . '/includes/bootstrap.php';
 
-$photoNid = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-if ($photoNid <= 0) die("Invalid photo id.");
+$nid = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+if ($nid <= 0) die("Invalid photo id.");
 
-/**
- * Photo page data (Drupal 7)
- * - Photo is a node type: 'photo'
- * - Linked bird nid via: dpl_field_data_field_bird.field_bird_target_id
- * - Photo image via: dpl_field_data_field_image.field_image_fid -> dpl_file_managed.uri
- * - Bird order/family via term refs on bird node
- * - Photographer via field_photographer_*_value on photo node (string fields)
- */
-$sql = "
-SELECT
-  p.nid AS photo_nid,
-  p.title AS photo_title,
-  p.created AS photo_created,
-
-  fm.uri AS file_uri,
-
-  pen.field_photographer_english_name_value AS photographer_en,
-  pth.field_photographer_thai_name_value    AS photographer_th,
-
-  b.nid AS bird_nid,
-  b.title AS bird_title,
-
-  ord_term.name AS sci_order,
-  fam_term.name AS sci_family,
-
-  en.field_english_name_value AS bird_english_name,
-  th.field_thai_name_value    AS bird_thai_name
-
-FROM dpl_node p
-
--- photo -> bird link
-LEFT JOIN dpl_field_data_field_bird fb
-  ON fb.entity_type='node'
- AND fb.entity_id=p.nid
- AND fb.bundle='photo'
- AND fb.deleted=0
- AND fb.delta=0
-
-LEFT JOIN dpl_node b
-  ON b.nid = fb.field_bird_target_id
- AND b.type='bird'
-
--- bird order/family term refs
-LEFT JOIN dpl_field_data_field_sci_order ord
-  ON ord.entity_type='node'
- AND ord.entity_id=b.nid
- AND ord.bundle='bird'
- AND ord.deleted=0
- AND ord.delta=0
-LEFT JOIN dpl_taxonomy_term_data ord_term
-  ON ord_term.tid = ord.field_sci_order_tid
-
-LEFT JOIN dpl_field_data_field_sci_family fam
-  ON fam.entity_type='node'
- AND fam.entity_id=b.nid
- AND fam.bundle='bird'
- AND fam.deleted=0
- AND fam.delta=0
-LEFT JOIN dpl_taxonomy_term_data fam_term
-  ON fam_term.tid = fam.field_sci_family_tid
-
--- bird display names (optional)
-LEFT JOIN dpl_field_data_field_english_name en
-  ON en.entity_type='node'
- AND en.entity_id=b.nid
- AND en.bundle='bird'
- AND en.deleted=0
- AND en.delta=0
-
-LEFT JOIN dpl_field_data_field_thai_name th
-  ON th.entity_type='node'
- AND th.entity_id=b.nid
- AND th.bundle='bird'
- AND th.deleted=0
- AND th.delta=0
-
--- photo image field
-LEFT JOIN dpl_field_data_field_image img
-  ON img.entity_type='node'
- AND img.entity_id=p.nid
- AND img.bundle='photo'
- AND img.deleted=0
- AND img.delta=0
-
-LEFT JOIN dpl_file_managed fm
-  ON fm.fid = img.field_image_fid
-
--- photographer fields on photo node
-LEFT JOIN dpl_field_data_field_photographer_english_name pen
-  ON pen.entity_type='node'
- AND pen.entity_id=p.nid
- AND pen.bundle='photo'
- AND pen.deleted=0
- AND pen.delta=0
-
-LEFT JOIN dpl_field_data_field_photographer_thai_name pth
-  ON pth.entity_type='node'
- AND pth.entity_id=p.nid
- AND pth.bundle='photo'
- AND pth.deleted=0
- AND pth.delta=0
-
-WHERE p.nid = ?
-  AND p.type='photo'
-LIMIT 1
-";
-
-$stmt = $pdo->prepare($sql);
-$stmt->execute([$photoNid]);
-$photo = $stmt->fetch(PDO::FETCH_ASSOC);
-
+$photo = fetch_photo_detail($pdo, $nid);
 if (!$photo) die("Photo not found.");
 
-$thumbUrl = drupal_style_url($photo['file_uri'] ?? null, 'thumbnail');
-$largeUrl = drupal_style_url($photo['file_uri'] ?? null, 'large');
-$origUrl  = drupal_original_url($photo['file_uri'] ?? null);
+$imgDelta = isset($_GET['img']) ? (int)$_GET['img'] : 0;
+$main = pick_photo_image($photo['images'] ?? [], $imgDelta);
+$mainUri = $main['file_uri'] ?? null;
 
-// prefer large for display
-$displayUrl = $largeUrl ?: ($origUrl ?: $thumbUrl);
+$mainLarge = $mainUri ? (drupal_style_url($mainUri, 'large') ?: drupal_original_url($mainUri)) : null;
+$mainOrig  = $mainUri ? drupal_original_url($mainUri) : null;
 
-// Bird name display (Thai + English if exists, fallback to title)
-$birdNameLine = trim(($photo['bird_thai_name'] ?? '') . ' ' . ($photo['bird_english_name'] ?? ''));
-if ($birdNameLine === '') $birdNameLine = $photo['bird_title'] ?: 'Bird';
+$photographer = trim((string)$photo['photographer_th']) ?: trim((string)$photo['photographer_en']);
+
+$backUrl  = !empty($photo['bird_nid']) ? ("species.php?id=" . (int)$photo['bird_nid']) : "index.php";
+$backText = !empty($photo['bird_nid']) ? "← Back to Species" : "← Back to Home";
+
+// Date formatting: full date without time
+$formattedDate = '';
+if (!empty($photo['photo_date'])) {
+    try {
+        $dt = new DateTime($photo['photo_date']);
+        $formattedDate = $dt->format('F j, Y'); // November 5, 2011
+    } catch (Exception $e) {
+        // fallback: strip time if present
+        $formattedDate = preg_replace('/\s+\d{2}:\d{2}:\d{2}$/', '', (string)$photo['photo_date']);
+    }
+}
+
+$bird = $photo['bird'] ?? null;
+$birdThai = trim((string)($bird['thai_names'] ?? ''));
+$birdEng  = trim((string)($bird['english_names'] ?? ''));
+$birdSci  = trim((string)($bird['species_names'] ?? ''));
+$birdOrder  = trim((string)($bird['order_names'] ?? ''));
+$birdFamily = trim((string)($bird['family_names'] ?? ''));
 
 include "includes/header.php";
 ?>
 
 <div class="container">
-
   <div class="page-topbar">
-    <a class="back-link" href="species.php?id=<?= (int)$photo['bird_nid'] ?>">← Back to species</a>
+    <a class="back-link" href="<?= h($backUrl) ?>"><?= h($backText) ?></a>
   </div>
 
-  <div class="photo-header-card">
-    <h1 class="photo-page-title">
-      <?= htmlspecialchars($birdNameLine) ?>
-    </h1>
-
-    <?php if (!empty($photo['photographer_en']) || !empty($photo['photographer_th'])): ?>
-      <div class="photo-credit">
-        Photographer:
-        <?php if (!empty($photo['photographer_en'])): ?>
-          <span><?= htmlspecialchars($photo['photographer_en']) ?></span>
-        <?php endif; ?>
-        <?php if (!empty($photo['photographer_th'])): ?>
-          (<?= htmlspecialchars($photo['photographer_th']) ?>)
-        <?php endif; ?>
-      </div>
-    <?php endif; ?>
+  <div class="photo-header">
+    <h1 class="photo-title"><?= h($photo['photo_title'] ?? 'Photo') ?></h1>
   </div>
 
-  <div class="photo-image-card">
-    <?php if ($displayUrl): ?>
-      <a href="<?= htmlspecialchars($origUrl ?: $displayUrl) ?>" target="_blank" rel="noopener noreferrer">
-        <img
-          class="photo-main-image"
-          src="<?= htmlspecialchars($displayUrl) ?>"
-          alt="<?= htmlspecialchars($photo['photo_title'] ?: 'Bird photo') ?>"
-          loading="lazy" />
-      </a>
-      <div class="photo-hint">Click image to open full size</div>
-    <?php else: ?>
-      <div class="empty-state">No image file found for this photo.</div>
-    <?php endif; ?>
-  </div>
-
-  <div class="section">
-    <div class="section-header">
-      <h2>Photo Info</h2>
-    </div>
-
-    <div class="info-card">
-      <div class="info-row">
-        <div class="info-label">Species</div>
-        <div class="info-value">
-          <a class="inline-link" href="species.php?id=<?= (int)$photo['bird_nid'] ?>">
-            <?= htmlspecialchars($birdNameLine) ?>
+  <div class="photo-layout">
+    <!-- LEFT: Viewer -->
+    <div class="photo-viewer">
+      <div class="viewer-frame">
+        <?php if ($mainLarge): ?>
+          <a href="<?= h($mainOrig ?: $mainLarge) ?>" target="_blank" rel="noopener">
+            <img class="viewer-img" src="<?= h($mainLarge) ?>" alt="<?= h($main['alt'] ?? 'Photo') ?>" />
           </a>
+        <?php else: ?>
+          <div class="empty-state">No image available.</div>
+        <?php endif; ?>
+      </div>
+
+      <?php if (!empty($photo['images']) && count($photo['images']) > 1): ?>
+        <div class="thumb-strip">
+          <?php foreach ($photo['images'] as $img): ?>
+            <?php
+              $u = $img['file_uri'] ?? null;
+              $thumb = $u ? (drupal_style_url($u, 'thumbnail') ?: drupal_original_url($u)) : null;
+              $switchUrl = "photo.php?id=" . (int)$photo['photo_nid'] . "&img=" . (int)$img['delta'];
+            ?>
+            <a class="thumb <?= ((int)$img['delta'] === $imgDelta) ? 'is-active' : '' ?>" href="<?= h($switchUrl) ?>">
+              <?php if ($thumb): ?>
+                <img src="<?= h($thumb) ?>" alt="" loading="lazy" />
+              <?php else: ?>
+                <div class="thumb-placeholder">No</div>
+              <?php endif; ?>
+            </a>
+          <?php endforeach; ?>
         </div>
-      </div>
+      <?php endif; ?>
+    </div>
 
-      <div class="info-row">
-        <div class="info-label">Order</div>
-        <div class="info-value"><?= htmlspecialchars($photo['sci_order'] ?? '-') ?></div>
-      </div>
+    <!-- RIGHT: Meta -->
+    <div class="photo-meta">
+      <div class="content-card">
 
-      <div class="info-row">
-        <div class="info-label">Family</div>
-        <div class="info-value"><?= htmlspecialchars($photo['sci_family'] ?? '-') ?></div>
+        <!-- Bird block moved here -->
+        <?php if (!empty($photo['bird_nid']) && $bird): ?>
+          <div class="meta-bird">
+            <div class="meta-bird-title">
+              <a class="inline-link" href="species.php?id=<?= (int)$photo['bird_nid'] ?>">
+                <?= h($birdEng !== '' ? $birdEng : ($birdThai !== '' ? $birdThai : ($bird['title'] ?? 'Bird'))) ?>
+              </a>
+            </div>
+
+            <?php if ($birdThai !== '' || $birdEng !== ''): ?>
+              <div class="meta-bird-names">
+                <?php if ($birdThai !== ''): ?><span><?= h($birdThai) ?></span><?php endif; ?>
+                <?php if ($birdThai !== '' && $birdEng !== ''): ?><span class="sep">•</span><?php endif; ?>
+                <?php if ($birdEng !== ''): ?><span><?= h($birdEng) ?></span><?php endif; ?>
+              </div>
+            <?php endif; ?>
+
+            <?php if ($birdSci !== ''): ?>
+              <div class="meta-bird-sci"><em><?= h($birdSci) ?></em></div>
+            <?php endif; ?>
+
+            <?php if ($birdOrder !== '' || $birdFamily !== ''): ?>
+              <div class="meta-bird-tax">
+                <?php if ($birdOrder !== ''): ?>
+                  <div class="meta-row">
+                    <div class="meta-label">Order</div>
+                    <div class="meta-value"><?= h($birdOrder) ?></div>
+                  </div>
+                <?php endif; ?>
+                <?php if ($birdFamily !== ''): ?>
+                  <div class="meta-row">
+                    <div class="meta-label">Family</div>
+                    <div class="meta-value"><?= h($birdFamily) ?></div>
+                  </div>
+                <?php endif; ?>
+              </div>
+            <?php endif; ?>
+          </div>
+
+          <div class="meta-divider"></div>
+        <?php endif; ?>
+
+        <?php if ($photographer !== ''): ?>
+          <div class="meta-row">
+            <div class="meta-label">Photographer</div>
+            <div class="meta-value"><?= h($photographer) ?></div>
+          </div>
+        <?php endif; ?>
+
+        <?php if ($formattedDate !== ''): ?>
+          <div class="meta-row">
+            <div class="meta-label">Date</div>
+            <div class="meta-value"><?= h($formattedDate) ?></div>
+          </div>
+        <?php endif; ?>
+
+        <?php if (trim((string)$photo['location_text']) !== ''): ?>
+          <div class="meta-row">
+            <div class="meta-label">Location</div>
+            <div class="meta-value"><?= nl2br(h($photo['location_text'])) ?></div>
+          </div>
+        <?php endif; ?>
+
+        <?php if (trim((string)$photo['plumage_name']) !== ''): ?>
+          <div class="meta-row">
+            <div class="meta-label">Plumage</div>
+            <div class="meta-value"><?= h($photo['plumage_name']) ?></div>
+          </div>
+        <?php endif; ?>
+
+        <?php if (trim((string)$photo['race_value']) !== ''): ?>
+          <div class="meta-row">
+            <div class="meta-label">Race</div>
+            <div class="meta-value"><?= h($photo['race_value']) ?></div>
+          </div>
+        <?php endif; ?>
+
+        <?php if ($mainOrig): ?>
+          <div class="meta-row">
+            <div class="meta-label">File</div>
+            <div class="meta-value">
+              <a class="inline-link" href="<?= h($mainOrig) ?>" target="_blank" rel="noopener">Open original</a>
+            </div>
+          </div>
+        <?php endif; ?>
+
       </div>
     </div>
   </div>
 
-  <!-- COMMENTS -->
-  <?php render_comments_section($pdo, $photoNid); ?>
+  <?php if (trim((string)$photo['body']) !== ''): ?>
+    <div class="section">
+      <h2>Description</h2>
+      <div class="content-card">
+        <?= nl2br(h($photo['body'])) ?>
+      </div>
+    </div>
+  <?php endif; ?>
 
+  <?php if (trim((string)$photo['taxonomy_text']) !== ''): ?>
+    <div class="section">
+      <h2>Notes</h2>
+      <div class="content-card">
+        <?= nl2br(h($photo['taxonomy_text'])) ?>
+      </div>
+    </div>
+  <?php endif; ?>
+
+  <?php render_comments_section($pdo, $nid); ?>
 </div>
 
 <?php include "includes/footer.php"; ?>
