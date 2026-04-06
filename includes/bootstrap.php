@@ -17,4 +17,8 @@ require_once __DIR__ . '/queries_species.php';
 // photo
 require_once __DIR__ . '/queries_photo.php';
 
+// article
+require_once __DIR__ . '/queries_articles.php';
+require_once __DIR__ . '/queries_article.php';
+
 bot_pdo_init($pdo);
