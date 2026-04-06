@@ -34,6 +34,9 @@ function split_tag_names($tag_names)
 }
 
 $article = null;
+$images = [];
+$document_url = null;
+$tags = [];
 
 if (isset($_GET['id']) && ctype_digit((string) $_GET['id'])) {
     $article = fetch_article_by_nid($pdo, (int) $_GET['id']);
@@ -43,16 +46,17 @@ if (isset($_GET['id']) && ctype_digit((string) $_GET['id'])) {
 
 $page_title = $article['title'] ?? 'Article';
 
-$image_url = null;
-$document_url = null;
-$tags = [];
-
 if ($article) {
-    // ✅ Use your shared helper
-    $image_url = drupal_original_url($article['image_uri'] ?? null);
+    $tags = split_tag_names($article['tag_names'] ?? '');
     $document_url = drupal_original_url($article['document_uri'] ?? null);
 
-    $tags = split_tag_names($article['tag_names'] ?? '');
+    $images = fetch_article_images($pdo, $article['nid']);
+
+    foreach ($images as &$image) {
+        $image['original_url'] = drupal_original_url($image['uri'] ?? null);
+        $image['large_url'] = drupal_style_url($image['uri'] ?? null, 'large') ?: $image['original_url'];
+    }
+    unset($image);
 }
 
 include "includes/header.php";
@@ -60,7 +64,7 @@ include "includes/header.php";
 
 <div class="page-topbar">
     <div class="container page-topbar-inner">
-        <a href="index.php" class="back-link">&larr; Back to home</a>
+        <a href="articles.php" class="back-link">&larr; Back to articles</a>
     </div>
 </div>
 
@@ -94,14 +98,38 @@ include "includes/header.php";
                 <?php endif; ?>
             </header>
 
-            <?php if ($image_url): ?>
-                <div class="article-image-wrap">
-                    <img
-                        src="<?php echo htmlspecialchars($image_url); ?>"
-                        alt="<?php echo htmlspecialchars($article['field_image_alt'] ?? $article['title']); ?>"
-                        class="article-image"
-                    >
-                </div>
+            <?php if ($images): ?>
+                <?php if (count($images) === 1): ?>
+                    <?php $image = $images[0]; ?>
+                    <?php if (!empty($image['large_url'])): ?>
+                        <div class="article-image-wrap">
+                            <img
+                                src="<?php echo htmlspecialchars($image['large_url']); ?>"
+                                alt="<?php echo htmlspecialchars($image['field_image_alt'] ?: $image['field_image_title'] ?: $article['title']); ?>"
+                                class="article-image"
+                            >
+                        </div>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <div class="article-gallery">
+                        <?php foreach ($images as $image): ?>
+                            <?php if (!empty($image['large_url'])): ?>
+                                <a
+                                    href="<?php echo htmlspecialchars($image['original_url'] ?: $image['large_url']); ?>"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="article-gallery-item"
+                                >
+                                    <img
+                                        src="<?php echo htmlspecialchars($image['large_url']); ?>"
+                                        alt="<?php echo htmlspecialchars($image['field_image_alt'] ?: $image['field_image_title'] ?: $article['title']); ?>"
+                                        class="article-gallery-image"
+                                    >
+                                </a>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             <?php endif; ?>
 
             <div class="article-body">

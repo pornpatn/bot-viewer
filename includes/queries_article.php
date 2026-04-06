@@ -96,3 +96,28 @@ function fetch_article_by_alias(PDO $pdo, $alias)
 
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 }
+
+function fetch_article_images(PDO $pdo, $nid)
+{
+    $sql = "
+        SELECT
+            fi.delta,
+            fi.field_image_fid,
+            fi.field_image_alt,
+            fi.field_image_title,
+            fm.uri,
+            fm.filename
+        FROM dpl_field_data_field_image fi
+        LEFT JOIN dpl_file_managed fm
+            ON fm.fid = fi.field_image_fid
+        WHERE fi.entity_id = :nid
+          AND fi.entity_type = 'node'
+          AND fi.deleted = 0
+        ORDER BY fi.delta ASC
+    ";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([':nid' => $nid]);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
