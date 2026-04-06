@@ -63,7 +63,7 @@ $taxonomyText = trim((string)($species['taxonomy_text_values'] ?? ''));
 
 <div class="container">
     <div class="page-topbar">
-        <a class="back-link" href="index.php">← Back to Home</a>
+        <a class="back-link" href="birds.php">← Back to Bird List</a>
     </div>
 
     <!-- TOP: Species Detail -->
