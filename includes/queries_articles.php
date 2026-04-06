@@ -7,13 +7,20 @@ function fetch_articles(PDO $pdo, $limit = 20)
             n.nid,
             n.title,
             n.created,
-
             b.body_summary,
+            ua.alias,
 
-            fi.field_image_fid,
-            img.uri AS image_uri,
-
-            ua.alias
+            (
+                SELECT fm.uri
+                FROM dpl_field_data_field_image fi
+                LEFT JOIN dpl_file_managed fm
+                    ON fm.fid = fi.field_image_fid
+                WHERE fi.entity_id = n.nid
+                  AND fi.entity_type = 'node'
+                  AND fi.deleted = 0
+                ORDER BY fi.delta ASC
+                LIMIT 1
+            ) AS image_uri
 
         FROM dpl_node n
 
@@ -21,14 +28,6 @@ function fetch_articles(PDO $pdo, $limit = 20)
             ON b.entity_id = n.nid
            AND b.entity_type = 'node'
            AND b.deleted = 0
-
-        LEFT JOIN dpl_field_data_field_image fi
-            ON fi.entity_id = n.nid
-           AND fi.entity_type = 'node'
-           AND fi.deleted = 0
-
-        LEFT JOIN dpl_file_managed img
-            ON img.fid = fi.field_image_fid
 
         LEFT JOIN dpl_url_alias ua
             ON ua.source = CONCAT('node/', n.nid)
@@ -41,7 +40,7 @@ function fetch_articles(PDO $pdo, $limit = 20)
     ";
 
     $stmt = $pdo->prepare($sql);
-    $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
+    $stmt->bindValue(':limit', (int) $limit, PDO::PARAM_INT);
     $stmt->execute();
 
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
